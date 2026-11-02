@@ -1,6 +1,7 @@
 import numpy as np
+import pytest
 
-from tube_optimization import BezierCurve, TubeSurface
+from tube_optimization import BezierCurve, TubeSelfIntersectionError, TubeSurface
 
 
 def make_tube():
@@ -37,3 +38,23 @@ def test_write_stl(tmp_path):
     text = path.read_text()
     for name in ("inlet", "outlet", "tube"):
         assert f"solid {name}" in text and f"endsolid {name}" in text
+
+
+def test_bezier_curvature():
+    # A quadratic curve with these points is a parabola y = x^2, curvature at the apex is 2
+    curve = BezierCurve([[-1, 1, 0], [0, -1, 0], [1, 1, 0]])
+    assert np.isclose(curve.curvature(0.5)[0], 2.0)
+    assert np.allclose(BezierCurve([[0, 0, 0], [1, 0, 0]]).curvature([0.3]), 0)
+
+
+def test_tight_bend_raises():
+    curve = BezierCurve([[0, 0, 0], [1, 0.1, 0], [0, 0.2, 0]])
+    with pytest.raises(TubeSelfIntersectionError):
+        TubeSurface(curve, radius=0.5).build()
+
+
+def test_wall_overlap_raises():
+    # Gentle loop that comes back close to itself without any tight bend
+    curve = BezierCurve([[0, 0, 0], [10, 3, 0], [-10, 3, 0], [4, 0.1, 0]])
+    with pytest.raises(TubeSelfIntersectionError):
+        TubeSurface(curve, radius=0.3, n_axial=200).build()

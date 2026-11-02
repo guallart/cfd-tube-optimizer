@@ -23,17 +23,33 @@ class BezierCurve:
         t = np.atleast_1d(np.asarray(t, dtype=float))
         return self._de_casteljau(self.control_points, t)
 
+    def derivative(self, t, order=1):
+        """Derivative of the given order at the parameters t. Returns (len(t), 3)."""
+        t = np.atleast_1d(np.asarray(t, dtype=float))
+        if order > self.degree:
+            return np.zeros((len(t), 3))
+        # The k-th derivative of a Bezier curve is another Bezier curve of k
+        # degrees less, built from the k-th differences of the control points.
+        scale = np.prod(np.arange(self.degree, self.degree - order, -1))
+        pts = scale * np.diff(self.control_points, n=order, axis=0)
+        return self._de_casteljau(pts, t)
+
     def tangent(self, t):
         """Unit tangent vectors at the parameters t in [0, 1]. Returns (len(t), 3)."""
-        t = np.atleast_1d(np.asarray(t, dtype=float))
-        # The derivative of a Bezier curve is another Bezier curve of one degree
-        # less, built from the differences of consecutive control points.
-        deriv_pts = self.degree * np.diff(self.control_points, axis=0)
-        d = self._de_casteljau(deriv_pts, t)
+        d = self.derivative(t, 1)
         norm = np.linalg.norm(d, axis=1, keepdims=True)
         if np.any(norm < 1e-12):
             raise ValueError("curve has a zero-velocity point, tangent is undefined")
         return d / norm
+
+    def curvature(self, t):
+        """Curvature |r' x r''| / |r'|^3 at the parameters t. Returns (len(t),)."""
+        d1 = self.derivative(t, 1)
+        d2 = self.derivative(t, 2)
+        speed = np.linalg.norm(d1, axis=1)
+        if np.any(speed < 1e-12):
+            raise ValueError("curve has a zero-velocity point, curvature is undefined")
+        return np.linalg.norm(np.cross(d1, d2), axis=1) / speed**3
 
     @staticmethod
     def _de_casteljau(points, t):

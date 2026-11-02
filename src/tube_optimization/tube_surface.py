@@ -3,6 +3,10 @@ import numpy as np
 from .bezier import BezierCurve
 
 
+class TubeSelfIntersectionError(ValueError):
+    """Raised when the tube would cross itself or fold on a tight bend."""
+
+
 class TubeSurface:
     """Triangulated surface of a constant-radius tube following a Bezier curve.
 
@@ -50,8 +54,39 @@ class TubeSurface:
         p = np.cross(v, axis)
         return p / np.linalg.norm(p)
 
+    def check_self_intersection(self):
+        """Raises TubeSelfIntersectionError if the tube is not geometrically valid.
+
+        Two things are checked on the sampled centerline:
+        - local: the radius must be smaller than the radius of curvature,
+          otherwise the circles fold over each other on the inside of a bend.
+        - global: two distant parts of the tube must be at least one diameter
+          apart, otherwise the walls overlap.
+        """
+        t = np.linspace(0.0, 1.0, self.n_axial)
+        r = self.radius
+
+        kappa_max = self.curve.curvature(t).max()
+        if kappa_max * r >= 1.0:
+            raise TubeSelfIntersectionError(
+                f"radius {r} is larger than the minimum radius of curvature "
+                f"{1 / kappa_max:.4g}")
+
+        centers = self.curve.evaluate(t)
+        arc = np.concatenate([[0.0], np.cumsum(np.linalg.norm(np.diff(centers, axis=0), axis=1))])
+        dist = np.linalg.norm(centers[:, None, :] - centers[None, :, :], axis=2)
+        along = np.abs(arc[:, None] - arc[None, :])
+        # Points closer than pi*r along the curve are neighbours, not a collision.
+        # With the curvature check above, their distance is always above 2r anyway.
+        far = along > np.pi * r
+        if np.any(dist[far] < 2 * r):
+            raise TubeSelfIntersectionError(
+                f"tube walls overlap: closest approach is {dist[far].min():.4g}, "
+                f"minimum allowed is {2 * r:.4g}")
+
     def build(self):
         """Returns a dict {patch name: triangles}, triangles with shape (n, 3, 3)."""
+        self.check_self_intersection()
         rings = self._rings()
         m = self.n_circ
         nxt = np.roll(np.arange(m), -1)  # index of the next vertex around the ring
