@@ -12,7 +12,7 @@ from pathlib import Path
 PROJECT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(PROJECT_DIR / "src"))
 
-from tube_optimization import Box, Sphere, TubeOptimizer  # noqa: E402
+from tube_optimization import Box, MeshObstacle, Sphere, TubeOptimizer  # noqa: E402
 
 # lengths in meters
 INLET_POINT =      [0.0, 0.0, 0.0]
@@ -36,6 +36,9 @@ OBSTACLES = [
     Box(corner_min=[WALL_X[0], WINDOW_Y[1], FRAME_LO], corner_max=[WALL_X[1], FRAME_HI, FRAME_HI]),         # side
     Box(corner_min=[WALL_X[0], WINDOW_Y[0], FRAME_LO], corner_max=[WALL_X[1], WINDOW_Y[1], WINDOW_Z[0]]),   # bottom
     Box(corner_min=[WALL_X[0], WINDOW_Y[0], WINDOW_Z[1]], corner_max=[WALL_X[1], WINDOW_Y[1], FRAME_HI]),   # top
+    # Any closed surface modelled in other software can be added as well. Here a
+    # model exported in millimeters, moved 1 m along x:
+    # MeshObstacle("case/my_obstacle.stl", scale=0.001, translate=[1.0, 0.0, 0.0]),
 ]
 
 MAX_EVALUATIONS = 100

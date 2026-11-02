@@ -43,6 +43,8 @@ The mesh is made with snappyHexMesh, a hex-dominant mesh refined at the wall, wi
 
 For the test tube I used, the pressure drop changes about 1.5% between the default mesh and one twice as fine, so mesh resolution is not the main problem. The noise is: moving a control point a tiny bit changes the mesh, and with it the result, by 1 or 2%. That is why the optimizer is derivative-free (COBYLA or CMA-ES, see below) and why improvements smaller than that mean nothing. Because it starts from a single point it can also get stuck in a local minimum.
 
+Besides spheres and boxes, an obstacle can be any closed surface modelled in other software and loaded from an STL: `MeshObstacle("part.stl", scale=0.001, translate=[x, y, z])` (`scale` converts the units of the model to meters). Checking the tube against thousands of triangles on every design would be slow, so the signed distance to the surface is computed once on a grid when the file is loaded, and each check afterwards is an interpolation that does not depend on the number of triangles. The accuracy is about one grid cell (by default 1% of the size of the obstacle; pass `cell_size` to change it, around a quarter of the tube radius or less is a good value). The surface has to be closed, otherwise a warning is shown. Other formats (OBJ, PLY...) are read if `trimesh` is installed.
+
 Obstacles are only forbidden regions for the tube. They are not part of the CFD and do not disturb the flow. The geometry (obstacles, self intersection, minimum end segments) is handled as constraints, not as a penalty on the pressure drop: it is cheap to evaluate, so a design that violates it is first moved to the closest valid one and only that one is simulated. No CFD run is spent on an invalid tube.
 
 ## Using it

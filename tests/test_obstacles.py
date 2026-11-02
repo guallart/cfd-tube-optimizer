@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from tube_optimization import Box, Sphere, write_obstacles_stl
+from tube_optimization import Box, MeshObstacle, Sphere, read_stl, write_obstacles_stl
 from test_optimizer import FakeOptimizer
 
 
@@ -62,3 +62,60 @@ def test_optimizer_avoids_obstacle(tmp_path, solver):
     assert obstacles[0].signed_distance(centerline).min() >= 0.05
     assert Strict.simulated == result.n_evaluations
     assert (tmp_path / "opt" / "obstacles.stl").exists()
+
+
+# --- obstacles from a surface mesh (STL)
+
+def test_read_stl_ascii_and_binary(tmp_path):
+    tris = Box([0, 0, 0], [1, 2, 3]).triangles()
+    write_obstacles_stl([Box([0, 0, 0], [1, 2, 3])], tmp_path / "ascii.stl")
+    assert np.allclose(read_stl(tmp_path / "ascii.stl"), tris)
+
+    record = np.dtype([("normal", "<f4", 3), ("vertices", "<f4", (3, 3)), ("attr", "<u2")])
+    data = np.zeros(len(tris), dtype=record)
+    data["vertices"] = tris
+    (tmp_path / "binary.stl").write_bytes(bytes(80) + len(tris).to_bytes(4, "little") + data.tobytes())
+    assert np.allclose(read_stl(tmp_path / "binary.stl"), tris)
+
+
+@pytest.mark.parametrize("analytic", [Sphere([1.0, 0.5, -0.5], 0.8), Box([0, 0, 0], [1.5, 1.0, 0.6])])
+def test_mesh_obstacle_matches_the_analytic_distance(analytic):
+    mesh = MeshObstacle(analytic.triangles(), cell_size=0.02)
+    rng = np.random.default_rng(0)
+    points = rng.uniform(-1.0, 2.5, size=(3000, 3))
+    exact, approx = analytic.signed_distance(points), mesh.signed_distance(points)
+    # Accurate where a tube could be touching it (the sphere mesh is a polyhedron,
+    # so it is slightly inside the true sphere). Far away it only has to be large.
+    near = exact < 0.15
+    assert near.sum() > 50
+    assert np.abs(exact - approx)[near].max() < 0.03
+    assert np.all(approx[~near] > 0.1)
+    assert np.all(approx[exact < -0.05] < 0) and np.all(approx[exact > 0.05] > 0)
+
+
+def test_mesh_obstacle_from_file_with_scale_and_translate(tmp_path):
+    # A 1 m box modelled in millimeters, moved 2 m along x
+    write_obstacles_stl([Box([0, 0, 0], [1000, 1000, 1000])], tmp_path / "box.stl")
+    mesh = MeshObstacle(tmp_path / "box.stl", scale=0.001, translate=[2, 0, 0], cell_size=0.02)
+    assert mesh.signed_distance([[2.5, 0.5, 0.5]])[0] < -0.4
+    assert abs(mesh.signed_distance([[4.0, 0.5, 0.5]])[0] - 1.0) < 0.03
+    assert abs(mesh.signed_distance([[100.0, 0.5, 0.5]])[0] - 97.0) < 0.03   # far outside the grid
+
+
+def test_mesh_obstacle_warns_if_open():
+    tris = Box([0, 0, 0], [1, 1, 1]).triangles()[:-2]    # one face missing
+    with pytest.warns(UserWarning, match="closed"):
+        MeshObstacle(tris, cell_size=0.05)
+
+
+def test_mesh_obstacle_works_in_the_optimizer(tmp_path):
+    sphere = Sphere([1.5, 1.0, 0.25], 0.6)
+    obstacle = MeshObstacle(sphere.triangles(), cell_size=0.02)
+    opt = FakeOptimizer(
+        inlet_point=[0, 0, 0], inlet_direction=[1, 0, 0],
+        outlet_point=[3, 2, 0.5], outlet_direction=[1, 0, 0],
+        radius=0.05, degree=5, obstacles=[obstacle], results_dir=tmp_path / "opt", config={})
+    result = opt.run(max_evaluations=100)
+    centerline = result.curve.evaluate(np.linspace(0, 1, 300))
+    assert sphere.signed_distance(centerline).min() >= 0.05 - 0.03
+    assert "solid obstacle_0" in (tmp_path / "opt" / "obstacles.stl").read_text()
