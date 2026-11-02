@@ -41,9 +41,9 @@ The mesh is made with snappyHexMesh, a hex-dominant mesh refined at the wall, wi
 
 ### How much to trust the numbers
 
-For the test tube I used, the pressure drop changes about 1.5% between the default mesh and one twice as fine, so mesh resolution is not the main problem. The noise is: moving a control point a tiny bit changes the mesh, and with it the result, by 1 or 2%. That is why the optimizer is derivative-free (Nelder-Mead) and why improvements smaller than that mean nothing. Because it starts from a single point it can also get stuck in a local minimum.
+For the test tube I used, the pressure drop changes about 1.5% between the default mesh and one twice as fine, so mesh resolution is not the main problem. The noise is: moving a control point a tiny bit changes the mesh, and with it the result, by 1 or 2%. That is why the optimizer is derivative-free (COBYLA) and why improvements smaller than that mean nothing. Because it starts from a single point it can also get stuck in a local minimum.
 
-Obstacles are only forbidden regions for the tube. They are not part of the CFD and do not disturb the flow.
+Obstacles are only forbidden regions for the tube. They are not part of the CFD and do not disturb the flow. The geometry (obstacles, self intersection, minimum end segments) is handled as constraints, not as a penalty on the pressure drop: it is cheap to evaluate, so a design that violates it is first moved to the closest valid one and only that one is simulated. No CFD run is spent on an invalid tube.
 
 ## Using it
 

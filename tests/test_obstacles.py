@@ -40,12 +40,23 @@ def test_write_obstacles_stl(tmp_path):
 def test_optimizer_avoids_obstacle(tmp_path):
     # The straight path between the ports goes right through the sphere
     obstacles = [Sphere([1.5, 1.0, 0.25], 0.6)]
-    opt = FakeOptimizer(
+
+    class Strict(FakeOptimizer):
+        simulated = 0
+
+        def _simulate(self, tube, run_dir):
+            # Geometry is a constraint: an invalid design never reaches the CFD
+            centerline = tube.curve.evaluate(np.linspace(0, 1, 300))
+            assert obstacles[0].signed_distance(centerline).min() >= 0.05
+            Strict.simulated += 1
+            return super()._simulate(tube, run_dir)
+
+    opt = Strict(
         inlet_point=[0, 0, 0], inlet_direction=[1, 0, 0],
         outlet_point=[3, 2, 0.5], outlet_direction=[1, 0, 0],
         radius=0.05, degree=5, obstacles=obstacles, results_dir=tmp_path / "opt", config={})
     result = opt.run(max_evaluations=150)
     centerline = result.curve.evaluate(np.linspace(0, 1, 300))
     assert obstacles[0].signed_distance(centerline).min() >= 0.05
+    assert Strict.simulated == result.n_evaluations
     assert (tmp_path / "opt" / "obstacles.stl").exists()
-    assert "obstacle" in (tmp_path / "opt" / "history.csv").read_text()

@@ -55,34 +55,45 @@ class TubeSurface:
         p = np.cross(v, axis)
         return p / np.linalg.norm(p)
 
-    def check_self_intersection(self):
-        """Raises TubeSelfIntersectionError if the tube is not geometrically valid.
+    def clearances(self):
+        """Continuous margins of the geometric validity, both >= 0 for a valid tube.
 
-        Two things are checked on the sampled centerline:
-        - local: the radius must be smaller than the radius of curvature,
-          otherwise the circles fold over each other on the inside of a bend.
-        - global: two distant parts of the tube must be at least one diameter
-          apart, otherwise the walls overlap.
+        Returns (curvature_margin, wall_margin):
+        - curvature_margin = 1 - max curvature * radius. Negative when the radius
+          is larger than the radius of curvature, so the circles fold over each
+          other on the inside of a bend.
+        - wall_margin = distance between the two closest distant parts of the
+          centerline minus one diameter. Negative when the walls overlap.
+          Points closer than pi*r along the curve are neighbours, not a collision.
+
+        Raises ValueError if the curve has a point where it stops.
         """
         t = np.linspace(0.0, 1.0, self.n_axial)
         r = self.radius
 
-        kappa_max = self.curve.curvature(t).max()
-        if kappa_max * r >= 1.0:
-            raise TubeSelfIntersectionError(
-                f"radius {r} is larger than the minimum radius of curvature "
-                f"{1 / kappa_max:.4g}")
+        curvature_margin = 1.0 - self.curve.curvature(t).max() * r
 
         centers = self.curve.evaluate(t)
         arc = np.concatenate([[0.0], np.cumsum(np.linalg.norm(np.diff(centers, axis=0), axis=1))])
         dist = np.linalg.norm(centers[:, None, :] - centers[None, :, :], axis=2)
-        along = np.abs(arc[:, None] - arc[None, :])
-        # Points closer than pi*r along the curve are neighbours, not a collision.
-        # With the curvature check above, their distance is always above 2r anyway.
-        far = along > np.pi * r
-        if np.any(dist[far] < 2 * r):
+        far = np.abs(arc[:, None] - arc[None, :]) > np.pi * r
+        wall_margin = dist[far].min() - 2 * r if far.any() else np.inf
+        return curvature_margin, wall_margin
+
+    def check_self_intersection(self):
+        """Raises TubeSelfIntersectionError if the tube is not geometrically valid.
+
+        See clearances() for the two things that are checked.
+        """
+        r = self.radius
+        curvature_margin, wall_margin = self.clearances()
+        if curvature_margin <= 0:
             raise TubeSelfIntersectionError(
-                f"tube walls overlap: closest approach is {dist[far].min():.4g}, "
+                f"radius {r} is larger than the minimum radius of curvature "
+                f"{r / (1 - curvature_margin):.4g}")
+        if wall_margin < 0:
+            raise TubeSelfIntersectionError(
+                f"tube walls overlap: closest approach is {wall_margin + 2 * r:.4g}, "
                 f"minimum allowed is {2 * r:.4g}")
 
     def build(self):

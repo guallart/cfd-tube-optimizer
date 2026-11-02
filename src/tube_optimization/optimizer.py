@@ -32,13 +32,19 @@ class TubeOptimizer:
 
     Obstacles are regions the tube cannot enter: the centerline has to stay
     further than the tube radius from each of them. They are not part of the
-    CFD, designs that touch them are simply rejected before simulating.
+    CFD. The geometry (obstacles, self intersection, minimum segment length) is
+    handled as constraints, not as a penalty on the pressure drop: they are
+    cheap to evaluate and continuous, so COBYLA sees them as such. When the
+    optimizer proposes a design that violates them, it is moved back towards
+    the best valid design until it is valid, so no CFD run is wasted on it.
 
     Design variables x, all in units of the inlet-outlet distance L:
       x[0], x[1]  distance of the 2nd and the 2nd to last control points to the ports
       x[2:]       (dx, dy, dz) of every free control point, measured from its
                   position on the straight line between the ports
     """
+
+    MIN_SEGMENT = 0.05    # in units of L, shorter segments make the path fold back at the ports
 
     # Rows of the history that did not give a pressure drop are marked with these
     INVALID = ("short_segment", "self_intersection", "obstacle", "not_converged",
@@ -108,7 +114,7 @@ class TubeOptimizer:
         return BezierCurve(pts)
 
     def run(self, max_evaluations=100):
-        """Runs Nelder-Mead from the initial guess and returns an OptimizationResult."""
+        """Runs COBYLA from the initial guess and returns an OptimizationResult."""
         if self.results_dir.exists() and any(self.results_dir.iterdir()):
             raise FileExistsError(f"{self.results_dir} is not empty")
         self.results_dir.mkdir(parents=True, exist_ok=True)
@@ -119,24 +125,70 @@ class TubeOptimizer:
         dp0 = self.evaluate(x0)
         if dp0 is None:
             raise RuntimeError("the initial design is not valid, see history.csv")
-        # Anything invalid is scored as much worse than the starting point
+        # Only for simulations that fail (not converged, OpenFOAM error)
         self._penalty = 10 * dp0
 
-        step = 0.1
-        simplex = np.vstack([x0, x0 + step * np.eye(len(x0))])
-        minimize(self._objective, x0, method="Nelder-Mead", options={
-            "initial_simplex": simplex,
-            "maxfev": max_evaluations,
-            "xatol": 0.01,
-            # CFD noise is around 1%, there is no point in resolving less than that
-            "fatol": 0.005 * dp0,
-        })
+        minimize(self._objective, x0, method="COBYLA",
+                 constraints=[{"type": "ineq", "fun": self.constraints}],
+                 # CFD noise is around 1%, there is no point in resolving less than that
+                 options={"rhobeg": 0.1, "tol": 0.01, "maxiter": max_evaluations})
 
         dp, x, run_dir = self._best
         return OptimizationResult(self.build_curve(x), dp, x, run_dir, self._n_evals)
 
+    def constraints(self, x):
+        """Geometric constraints of the design x, all >= 0 when it is valid.
+
+        Lengths are divided by the inlet-outlet distance, so every entry is of order 1.
+        Entries: the two end segments, curvature, wall overlap, one per obstacle.
+        """
+        x = np.asarray(x, dtype=float)
+        segments = (x[:2] - self.MIN_SEGMENT) / self.MIN_SEGMENT
+        try:
+            tube = TubeSurface(self.build_curve(x), self.radius)
+            curvature_margin, wall_margin = tube.clearances()
+            centerline = tube.curve.evaluate(np.linspace(0, 1, 300))
+            clearance = [(o.signed_distance(centerline).min() - self.radius) / self.length
+                         for o in self.obstacles]
+        except ValueError:   # a point where the curve stops
+            curvature_margin = wall_margin = -1.0
+            clearance = [-1.0] * len(self.obstacles)
+        return np.concatenate([segments, [curvature_margin, min(wall_margin / self.length, 1.0)],
+                               clearance])
+
+    def _repair(self, x):
+        """Returns x if it is valid, otherwise the closest valid design.
+
+        Only geometry is involved, so this costs no simulations. A first valid
+        point is found by bisection towards the best valid design so far, and
+        then SLSQP moves it to the valid point closest to x.
+        """
+        x = np.asarray(x, dtype=float)
+        if self._is_valid(x):
+            return x
+        anchor = self._best[1]
+        lo, hi = 0.0, 1.0     # fraction of the way from the anchor to x
+        for _ in range(25):
+            mid = (lo + hi) / 2
+            if self._is_valid(anchor + mid * (x - anchor)):
+                lo = mid
+            else:
+                hi = mid
+        start = anchor + lo * (x - anchor)
+
+        projection = minimize(
+            lambda z: np.sum((z - x) ** 2), start, jac=lambda z: 2 * (z - x), method="SLSQP",
+            constraints=[{"type": "ineq", "fun": lambda z: self.constraints(z) - 1e-3}],
+            options={"maxiter": 30, "ftol": 1e-8})
+        if self._is_valid(projection.x) and np.sum((projection.x - x) ** 2) < np.sum((start - x) ** 2):
+            return projection.x
+        return start
+
+    def _is_valid(self, x):
+        return bool(np.all(self.constraints(x) >= 0))
+
     def _objective(self, x):
-        dp = self.evaluate(x)
+        dp = self.evaluate(self._repair(x))
         return self._penalty if dp is None else dp
 
     def evaluate(self, x):
@@ -168,20 +220,14 @@ class TubeOptimizer:
 
     def _geometry_status(self, x):
         """Checks a design without simulating it. Returns (tube, "ok") or (None, reason)."""
-        # Segments that are too short make the path fold back at the ports
-        if x[0] < 0.05 or x[1] < 0.05:
+        g = self.constraints(x)
+        if g[:2].min() < 0:
             return None, "short_segment"
-        try:
-            tube = TubeSurface(self.build_curve(x), self.radius)
-            tube.check_self_intersection()
-        except ValueError:   # self intersection, or a point where the curve stops
+        if g[2:4].min() < 0:
             return None, "self_intersection"
-        # The centerline is sampled finely, so a corner cut between two samples is negligible
-        centerline = tube.curve.evaluate(np.linspace(0, 1, 300))
-        for obstacle in self.obstacles:
-            if obstacle.signed_distance(centerline).min() < self.radius:
-                return None, "obstacle"
-        return tube, "ok"
+        if g[4:].size and g[4:].min() < 0:
+            return None, "obstacle"
+        return TubeSurface(self.build_curve(x), self.radius), "ok"
 
     def _simulate(self, tube, run_dir):
         case = OpenFOAMCase(tube, run_dir, self.config)
