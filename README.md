@@ -62,7 +62,7 @@ Edit the top of `run_optimization.py` (ports, radius, degree of the curve, obsta
 
 Everything ends up in `results/optimization_<date>/`: one OpenFOAM case per design (open `case.foam` in ParaView), the obstacles as an STL, a `history.csv` and the best design in `best.json`. Fluid properties, velocity, mesh resolution and the number of parallel processes are in `case/config.toml`.
 
-To get a video of the whole optimization, with the pressure drop of each iteration next to the tube:
+To get a video of the whole optimization: the tube of each iteration colored by its wall pressure (one fixed color scale for all iterations, or `--pressure-range MIN MAX`), with the pressure drop history floating in the upper right corner. The camera slowly turns around the scene at a constant speed (`--rotation-speed`, degrees per second, 12 by default, 0 for a fixed camera), independent of the iterations:
 
 ```bash
 pvbatch animate_results.py results/optimization_<date>

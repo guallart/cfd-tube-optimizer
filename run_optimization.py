@@ -14,23 +14,31 @@ sys.path.insert(0, str(PROJECT_DIR / "src"))
 
 from tube_optimization import Box, Sphere, TubeOptimizer  # noqa: E402
 
-# ----------------------------------------------------------------------------
-# Case definition (lengths in meters)
-# ----------------------------------------------------------------------------
-INLET_POINT = [0.0, 0.0, 0.0]
-INLET_DIRECTION = [1.0, 0.0, 0.0]     # direction of the flow when it enters
-OUTLET_POINT = [3.0, 1.0, 0.5]
+# lengths in meters
+INLET_POINT =      [0.0, 0.0, 0.0]
+INLET_DIRECTION =  [1.0, 0.0, 0.0]     # direction of the flow when it enters
+OUTLET_POINT =     [4.0, 1.0, 1.0]
 OUTLET_DIRECTION = [1.0, 0.0, 0.0]    # direction of the flow when it leaves
 TUBE_RADIUS = 0.1
-BEZIER_DEGREE = 5                     # at least 3, every extra degree adds a free control point
+BEZIER_DEGREE = 7                     # at least 3, every extra degree adds a free control point
 
+# A sphere right in front of the inlet and another one right in front of the
+# outlet. Between them, a square frame at x = 2.0..2.2 made of 4 aligned boxes
+# that leave a single, wider square opening (y and z from 0 to 1) for the tube.
+WALL_X = (2.0, 2.2)
+WINDOW_Y = (0.0, 1.0)
+WINDOW_Z = (0.0, 1.0)
+FRAME_LO, FRAME_HI = -0.4, 1.4        # outer extent of the frame in y and z
 OBSTACLES = [
-    Sphere(center=[1.5, 0.5, 0.25], radius=0.45),
-    Box(corner_min=[2.2, 0.2, -0.5], corner_max=[2.5, 1.2, 0.3]),
+    Sphere(center=[0.8, 0.0, 0.0], radius=0.3),
+    Sphere(center=[3.0, 1.0, 1.0], radius=0.3),
+    Box(corner_min=[WALL_X[0], FRAME_LO, FRAME_LO], corner_max=[WALL_X[1], WINDOW_Y[0], FRAME_HI]),         # side
+    Box(corner_min=[WALL_X[0], WINDOW_Y[1], FRAME_LO], corner_max=[WALL_X[1], FRAME_HI, FRAME_HI]),         # side
+    Box(corner_min=[WALL_X[0], WINDOW_Y[0], FRAME_LO], corner_max=[WALL_X[1], WINDOW_Y[1], WINDOW_Z[0]]),   # bottom
+    Box(corner_min=[WALL_X[0], WINDOW_Y[0], WINDOW_Z[1]], corner_max=[WALL_X[1], WINDOW_Y[1], FRAME_HI]),   # top
 ]
 
 MAX_EVALUATIONS = 100
-# ----------------------------------------------------------------------------
 
 
 def main():
