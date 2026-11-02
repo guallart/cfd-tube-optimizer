@@ -17,6 +17,51 @@ def load_config(path=CASE_DIR / "config.toml"):
         return tomllib.load(f)
 
 
+class NotConvergedError(RuntimeError):
+    """Raised when a case finished without meeting the residual controls."""
+
+
+def has_converged(run_dir):
+    """True if the solver log says the SIMPLE loop met the residual controls."""
+    log = Path(run_dir) / "log.foamRun"
+    if not log.exists():
+        raise FileNotFoundError(f"{log} not found, has the case been run?")
+    return "solution converged" in log.read_text()
+
+
+def _last_patch_pressure(run_dir, patch):
+    """Last area-averaged (kinematic) pressure written for a patch by patchAverage."""
+    post = Path(run_dir) / "postProcessing"
+    folders = [d for d in post.glob("patchAverage*") if f"patch={patch}," in d.name]
+    if not folders:
+        raise FileNotFoundError(f"no patchAverage output for patch '{patch}' in {post}")
+    # If the case was restarted there is one folder per start time, take the latest
+    times = [t for t in folders[0].iterdir() if t.is_dir()]
+    latest = max(times, key=lambda t: float(t.name))
+    lines = [l for l in (latest / "surfaceFieldValue.dat").read_text().splitlines()
+             if l.strip() and not l.lstrip().startswith("#")]
+    # Columns are: time, p, (Ux Uy Uz)
+    return float(lines[-1].split()[1])
+
+
+def read_pressure_drop(run_dir, rho=None, require_converged=True):
+    """Pressure drop (inlet - outlet) of an already computed case, in Pa.
+
+    OpenFOAM works with kinematic pressure (p / rho), so the result is multiplied
+    by the density. If rho is not given, the one in config.toml is used.
+
+    Raises NotConvergedError if the run did not converge, unless
+    require_converged is False (then the last written value is returned).
+    """
+    if require_converged and not has_converged(run_dir):
+        raise NotConvergedError(f"{run_dir} did not converge, see log.foamRun")
+    if rho is None:
+        rho = load_config()["fluid"]["rho"]
+    p_in = _last_patch_pressure(run_dir, "inlet")
+    p_out = _last_patch_pressure(run_dir, "outlet")
+    return rho * (p_in - p_out)
+
+
 class OpenFOAMCase:
     """Builds an OpenFOAM case for a tube from the template and runs it.
 
@@ -46,6 +91,10 @@ class OpenFOAMCase:
         script = f"source {cfg['bashrc']} && cd '{self.run_dir.resolve()}' && ./Allrun"
         subprocess.run(["distrobox", "enter", cfg["container"], "--", "bash", "-lc", script],
                        check=True)
+
+    def pressure_drop(self, require_converged=True):
+        """Pressure drop of this case in Pa, once it has been run."""
+        return read_pressure_drop(self.run_dir, self.config["fluid"]["rho"], require_converged)
 
     def _parameters(self):
         flow, fluid = self.config["flow"], self.config["fluid"]
