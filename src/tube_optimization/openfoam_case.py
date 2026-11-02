@@ -88,7 +88,9 @@ class OpenFOAMCase:
     def run(self):
         """Runs the Allrun script of the case inside the distrobox container."""
         cfg = self.config["openfoam"]
-        script = f"source {cfg['bashrc']} && cd '{self.run_dir.resolve()}' && ./Allrun"
+        # Open MPI counts physical cores as slots by default, make it count hardware threads
+        script = (f"export OMPI_MCA_hwloc_base_use_hwthreads_as_cpus=1 && "
+                  f"source {cfg['bashrc']} && cd '{self.run_dir.resolve()}' && ./Allrun")
         subprocess.run(["distrobox", "enter", cfg["container"], "--", "bash", "-lc", script],
                        check=True)
 
@@ -130,6 +132,7 @@ class OpenFOAMCase:
             "inside_x": inside[0], "inside_y": inside[1], "inside_z": inside[2],
             "nu": fluid["nu"], "velocity": u, "k": k, "epsilon": epsilon,
             "n_iterations": solver["n_iterations"],
+            "n_procs": solver["n_procs"],
         }
         return {name: f"{v:.8g}" if isinstance(v, (float, np.floating)) else str(v)
                 for name, v in params.items()}

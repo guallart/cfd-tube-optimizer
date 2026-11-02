@@ -11,6 +11,9 @@ internalField   uniform 0;
 
 boundaryField
 {
+    // Types of the constraint patches, needed for the processor boundaries
+    #includeEtc "caseDicts/setConstraintTypes"
+
     inlet
     {
         type            zeroGradient;

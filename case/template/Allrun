@@ -4,6 +4,22 @@ cd ${0%/*} || exit 1    # run from this directory
 . $WM_PROJECT_DIR/bin/tools/RunFunctions
 
 runApplication blockMesh
-runApplication snappyHexMesh -overwrite
-runApplication checkMesh
-runApplication foamRun
+
+# More than one subdomain: decompose and run everything else with mpirun
+if [ "$(getNumberOfProcessors)" -gt 1 ]
+then
+    runApplication decomposePar -copyZero
+    run=runParallel
+else
+    run=runApplication
+fi
+
+$run snappyHexMesh -overwrite
+$run checkMesh
+$run foamRun
+
+# Merge the processor directories back into a single case, to open it in ParaView
+if [ "$(getNumberOfProcessors)" -gt 1 ]
+then
+    runApplication reconstructPar -latestTime
+fi
