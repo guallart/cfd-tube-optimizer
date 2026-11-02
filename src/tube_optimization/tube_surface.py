@@ -1,6 +1,7 @@
 import numpy as np
 
 from .bezier import BezierCurve
+from .stl import write_stl
 
 
 class TubeSelfIntersectionError(ValueError):
@@ -127,15 +128,4 @@ class TubeSurface:
 
     def write_stl(self, path):
         """Writes an ASCII STL with one named solid per patch (OpenFOAM style)."""
-        with open(path, "w") as f:
-            for name, tris in self.build().items():
-                f.write(f"solid {name}\n")
-                for tri in tris:
-                    n = np.cross(tri[1] - tri[0], tri[2] - tri[0])
-                    n = n / np.linalg.norm(n)
-                    f.write(f"  facet normal {n[0]:e} {n[1]:e} {n[2]:e}\n")
-                    f.write("    outer loop\n")
-                    for v in tri:
-                        f.write(f"      vertex {v[0]:e} {v[1]:e} {v[2]:e}\n")
-                    f.write("    endloop\n  endfacet\n")
-                f.write(f"endsolid {name}\n")
+        write_stl(path, self.build())
