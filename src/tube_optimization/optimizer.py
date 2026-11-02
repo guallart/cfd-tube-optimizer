@@ -44,6 +44,7 @@ class TubeOptimizer:
                   position on the straight line between the ports
     """
 
+    SOLVERS = ("cobyla", "cma-es")
     MIN_SEGMENT = 0.05    # in units of L, shorter segments make the path fold back at the ports
 
     # Rows of the history that did not give a pressure drop are marked with these
@@ -52,7 +53,7 @@ class TubeOptimizer:
 
     def __init__(self, inlet_point, inlet_direction, outlet_point, outlet_direction,
                  radius, degree=5, obstacles=(), results_dir="results/optimization",
-                 config=None, seed=0):
+                 config=None, seed=0, solver=None):
         if degree < 3:
             raise ValueError("degree must be at least 3 to impose both end directions")
         self.p_in = np.asarray(inlet_point, dtype=float)
@@ -65,6 +66,13 @@ class TubeOptimizer:
         self.seed = seed
         self.results_dir = Path(results_dir)
         self.config = config if config is not None else load_config()
+        # Solver and its settings come from the [optimizer] table of config.toml
+        options = self.config.get("optimizer", {})
+        self.solver = solver or options.get("solver", "cma-es")
+        if self.solver not in self.SOLVERS:
+            raise ValueError(f"solver must be one of {self.SOLVERS}, not {self.solver!r}")
+        self.initial_step = options.get("initial_step", 0.1)   # in units of L
+        self.x_tolerance = options.get("x_tolerance", 0.01)    # in units of L
 
         self.length = np.linalg.norm(self.p_out - self.p_in)
         self.n_free = degree - 3
@@ -114,7 +122,7 @@ class TubeOptimizer:
         return BezierCurve(pts)
 
     def run(self, max_evaluations=100):
-        """Runs COBYLA from the initial guess and returns an OptimizationResult."""
+        """Runs the configured solver from the initial guess and returns an OptimizationResult."""
         if self.results_dir.exists() and any(self.results_dir.iterdir()):
             raise FileExistsError(f"{self.results_dir} is not empty")
         self.results_dir.mkdir(parents=True, exist_ok=True)
@@ -128,13 +136,42 @@ class TubeOptimizer:
         # Only for simulations that fail (not converged, OpenFOAM error)
         self._penalty = 10 * dp0
 
-        minimize(self._objective, x0, method="COBYLA",
-                 constraints=[{"type": "ineq", "fun": self.constraints}],
-                 # CFD noise is around 1%, there is no point in resolving less than that
-                 options={"rhobeg": 0.1, "tol": 0.01, "maxiter": max_evaluations})
+        if self.solver == "cobyla":
+            self._run_cobyla(x0, max_evaluations)
+        else:
+            self._run_cma_es(x0, dp0, max_evaluations)
 
         dp, x, run_dir = self._best
         return OptimizationResult(self.build_curve(x), dp, x, run_dir, self._n_evals)
+
+    def _run_cobyla(self, x0, max_evaluations):
+        minimize(self._objective, x0, method="COBYLA",
+                 constraints=[{"type": "ineq", "fun": self.constraints}],
+                 options={"rhobeg": self.initial_step, "tol": self.x_tolerance,
+                          "maxiter": max_evaluations})
+
+    def _run_cma_es(self, x0, dp0, max_evaluations):
+        """CMA-ES: samples a population around a mean, keeps the best and adapts the
+        covariance. Robust to the CFD noise and to flat regions, at the price of
+        needing more evaluations than COBYLA.
+
+        The sampled designs that are not valid are moved to the closest valid
+        one, and CMA-ES is told about the moved design (not the sampled one), so
+        the distribution does not drift into the forbidden region.
+        """
+        import cma    # only needed by this solver
+
+        es = cma.CMAEvolutionStrategy(x0, self.initial_step, {
+            "seed": self.seed + 1,             # 0 would mean a random seed
+            "maxfevals": max_evaluations,
+            "tolx": self.x_tolerance * self.initial_step,
+            "tolfun": 0.005 * dp0,             # CFD noise is around 1%
+            "verbose": -9,
+        })
+        while not es.stop() and self._n_evals < max_evaluations:
+            candidates = [self._repair(x) for x in es.ask()]
+            values = [self._objective(x) for x in candidates]
+            es.tell(candidates, values)
 
     def constraints(self, x):
         """Geometric constraints of the design x, all >= 0 when it is valid.

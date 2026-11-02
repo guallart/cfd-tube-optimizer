@@ -41,7 +41,7 @@ The mesh is made with snappyHexMesh, a hex-dominant mesh refined at the wall, wi
 
 ### How much to trust the numbers
 
-For the test tube I used, the pressure drop changes about 1.5% between the default mesh and one twice as fine, so mesh resolution is not the main problem. The noise is: moving a control point a tiny bit changes the mesh, and with it the result, by 1 or 2%. That is why the optimizer is derivative-free (COBYLA) and why improvements smaller than that mean nothing. Because it starts from a single point it can also get stuck in a local minimum.
+For the test tube I used, the pressure drop changes about 1.5% between the default mesh and one twice as fine, so mesh resolution is not the main problem. The noise is: moving a control point a tiny bit changes the mesh, and with it the result, by 1 or 2%. That is why the optimizer is derivative-free (COBYLA or CMA-ES, see below) and why improvements smaller than that mean nothing. Because it starts from a single point it can also get stuck in a local minimum.
 
 Obstacles are only forbidden regions for the tube. They are not part of the CFD and do not disturb the flow. The geometry (obstacles, self intersection, minimum end segments) is handled as constraints, not as a penalty on the pressure drop: it is cheap to evaluate, so a design that violates it is first moved to the closest valid one and only that one is simulated. No CFD run is spent on an invalid tube.
 
@@ -53,6 +53,13 @@ You need Python 3, an OpenFOAM 14 installation reachable through a distrobox con
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 ```
+
+The solver is chosen in the `[optimizer]` table of `case/config.toml` (default: `cma-es`):
+
+- `cobyla`: local, uses few evaluations. Good when the starting design is already reasonable.
+- `cma-es`: samples a population of designs per generation and adapts to the landscape. It tolerates the CFD noise and flat regions better and explores more, but needs more evaluations (use a larger `--max-evaluations`).
+
+Both handle the geometric constraints in the same way. `initial_step` and `x_tolerance` in the same table set the size of the first step and when to stop.
 
 Edit the top of `run_optimization.py` (ports, radius, degree of the curve, obstacles) and run it:
 

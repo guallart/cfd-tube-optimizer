@@ -67,3 +67,17 @@ def test_invalid_initial_design_raises(tmp_path):
     # Radius much larger than the curvature radius of the initial path
     with pytest.raises(RuntimeError):
         make(tmp_path=tmp_path, radius=5.0).run()
+
+
+def test_unknown_solver_is_rejected(tmp_path):
+    with pytest.raises(ValueError):
+        make(tmp_path=tmp_path, config={"optimizer": {"solver": "magic"}})
+
+
+@pytest.mark.parametrize("solver", ["cobyla", "cma-es"])
+def test_solver_is_chosen_from_the_config(tmp_path, solver):
+    opt = make(tmp_path=tmp_path, config={"optimizer": {"solver": solver}})
+    assert opt.solver == solver
+    initial = make(tmp_path=tmp_path, results_dir=tmp_path / "reference")
+    result = opt.run(max_evaluations=150)
+    assert result.pressure_drop < initial.evaluate(initial.initial_guess())

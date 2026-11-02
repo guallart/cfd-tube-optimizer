@@ -37,7 +37,8 @@ def test_write_obstacles_stl(tmp_path):
     assert "nan" not in text
 
 
-def test_optimizer_avoids_obstacle(tmp_path):
+@pytest.mark.parametrize("solver", ["cobyla", "cma-es"])
+def test_optimizer_avoids_obstacle(tmp_path, solver):
     # The straight path between the ports goes right through the sphere
     obstacles = [Sphere([1.5, 1.0, 0.25], 0.6)]
 
@@ -54,7 +55,8 @@ def test_optimizer_avoids_obstacle(tmp_path):
     opt = Strict(
         inlet_point=[0, 0, 0], inlet_direction=[1, 0, 0],
         outlet_point=[3, 2, 0.5], outlet_direction=[1, 0, 0],
-        radius=0.05, degree=5, obstacles=obstacles, results_dir=tmp_path / "opt", config={})
+        radius=0.05, degree=5, obstacles=obstacles, results_dir=tmp_path / "opt",
+        config={"optimizer": {"solver": solver}})
     result = opt.run(max_evaluations=150)
     centerline = result.curve.evaluate(np.linspace(0, 1, 300))
     assert obstacles[0].signed_distance(centerline).min() >= 0.05
