@@ -1,0 +1,84 @@
+FoamFile
+{
+    format      ascii;
+    class       dictionary;
+    location    "system";
+    object      snappyHexMeshDict;
+}
+
+castellatedMesh true;
+snap            true;
+addLayers       false;
+
+geometry
+{
+    tube
+    {
+        type triSurface;
+        file "tube.stl";
+        regions
+        {
+            inlet  { name inlet; }
+            outlet { name outlet; }
+            tube   { name wall; }
+        }
+    }
+};
+
+castellatedMeshControls
+{
+    maxLocalCells       10000000;
+    maxGlobalCells      10000000;
+    minRefinementCells  10;
+    maxLoadUnbalance    0.10;
+    nCellsBetweenLevels 2;
+
+    features ();
+
+    refinementSurfaces
+    {
+        tube
+        {
+            level ({{surface_level}} {{surface_level}});
+            regions
+            {
+                wall { patchInfo { type wall; } }
+            }
+        }
+    }
+
+    resolveFeatureAngle 30;
+    refinementRegions {}
+
+    // A point inside the tube, it decides which side of the surface is kept
+    insidePoint ({{inside_x}} {{inside_y}} {{inside_z}});
+    allowFreeStandingZoneFaces true;
+}
+
+snapControls
+{
+    nSmoothPatch    3;
+    tolerance       2.0;
+    nSolveIter      30;
+    nRelaxIter      5;
+    nFeatureSnapIter 10;
+    implicitFeatureSnap true;
+    explicitFeatureSnap false;
+    multiRegionFeatureSnap false;
+}
+
+addLayersControls
+{
+    relativeSizes   true;
+    layers          {}
+    expansionRatio  1.0;
+    finalLayerThickness 0.3;
+    minThickness    0.1;
+}
+
+meshQualityControls
+{
+    #includeEtc "caseDicts/mesh/generation/meshQualityDict"
+}
+
+mergeTolerance 1e-6;

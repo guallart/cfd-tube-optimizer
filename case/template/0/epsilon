@@ -1,0 +1,28 @@
+FoamFile
+{
+    format      ascii;
+    class       volScalarField;
+    location    "0";
+    object      epsilon;
+}
+
+dimensions      [turbulentEpsilon];
+internalField   uniform {{epsilon}};
+
+boundaryField
+{
+    inlet
+    {
+        type            fixedValue;
+        value           uniform {{epsilon}};
+    }
+    outlet
+    {
+        type            zeroGradient;
+    }
+    wall
+    {
+        type            epsilonWallFunction;
+        value           uniform {{epsilon}};
+    }
+}

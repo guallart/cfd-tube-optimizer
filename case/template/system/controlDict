@@ -1,0 +1,30 @@
+FoamFile
+{
+    format      ascii;
+    class       dictionary;
+    location    "system";
+    object      controlDict;
+}
+
+solver          incompressibleFluid;
+
+startFrom       startTime;
+startTime       0;
+stopAt          endTime;
+endTime         {{n_iterations}};
+deltaT          1;
+
+writeControl    timeStep;
+writeInterval   {{n_iterations}};
+purgeWrite      0;
+writeFormat     ascii;
+writePrecision  8;
+timeFormat      general;
+timePrecision   6;
+runTimeModifiable false;
+
+functions
+{
+    #includeFunc patchAverage(patch=inlet, fields=(p U))
+    #includeFunc patchAverage(patch=outlet, fields=(p U))
+}

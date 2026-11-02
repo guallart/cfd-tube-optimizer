@@ -1,0 +1,28 @@
+FoamFile
+{
+    format      ascii;
+    class       volScalarField;
+    location    "0";
+    object      k;
+}
+
+dimensions      [turbulentKineticEnergy];
+internalField   uniform {{k}};
+
+boundaryField
+{
+    inlet
+    {
+        type            fixedValue;
+        value           uniform {{k}};
+    }
+    outlet
+    {
+        type            zeroGradient;
+    }
+    wall
+    {
+        type            kqRWallFunction;
+        value           uniform {{k}};
+    }
+}

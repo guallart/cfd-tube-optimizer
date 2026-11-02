@@ -1,0 +1,23 @@
+# Parameters of the simulation. Everything here can be edited freely.
+
+[fluid]
+# Air at room temperature
+nu = 1.5e-5            # kinematic viscosity [m^2/s]
+rho = 1.2              # density [kg/m^3], only used to convert the pressure drop
+
+[flow]
+velocity = 10.0        # mean inlet velocity [m/s]
+turbulence_intensity = 0.05
+length_scale_factor = 0.07   # turbulence length scale as a fraction of the diameter
+
+[mesh]
+cells_per_radius = 8   # cell size at the tube wall = radius / cells_per_radius
+surface_level = 2      # refinement levels of snappyHexMesh at the wall
+margin_cells = 2       # empty background cells around the tube bounding box
+
+[solver]
+n_iterations = 1000    # maximum SIMPLE iterations
+
+[openfoam]
+container = "foam"                       # distrobox container name
+bashrc = "/opt/openfoam14/etc/bashrc"    # environment file inside the container
