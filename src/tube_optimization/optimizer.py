@@ -47,6 +47,8 @@ class TubeOptimizer:
     SOLVERS = ("cobyla", "cma-es")
     MIN_SEGMENT = 0.05    # in units of L, shorter segments make the path fold back at the ports
 
+    MAX_START_ATTEMPTS = 10   # starting designs tried before giving up
+
     # Rows of the history that did not give a pressure drop are marked with these
     INVALID = ("short_segment", "self_intersection", "obstacle", "not_converged",
                "openfoam_error")
@@ -86,17 +88,18 @@ class TubeOptimizer:
         v = np.asarray(v, dtype=float)
         return v / np.linalg.norm(v)
 
-    def initial_guess(self):
+    def initial_guess(self, attempt=0):
         """Starting design: a smooth cubic-like path if it is valid, otherwise the
-        shortest valid one out of a batch of random paths."""
+        shortest valid one out of a batch of random paths. A different attempt
+        number gives a different random batch."""
         x = np.zeros(2 + 3 * self.n_free)
         x[:2] = 1 / 3
-        if self._geometry_status(x)[1] == "ok":
+        if attempt == 0 and self._geometry_status(x)[1] == "ok":
             return x
 
         # The default path crosses an obstacle (or itself). Looking for a valid
         # one is only geometry, so it costs no simulations.
-        rng = np.random.default_rng(self.seed)
+        rng = np.random.default_rng(self.seed + attempt)
         best, best_length = None, np.inf
         t = np.linspace(0, 1, 100)
         for _ in range(2000):
@@ -129,10 +132,15 @@ class TubeOptimizer:
         if self.obstacles:
             write_obstacles_stl(self.obstacles, self.results_dir / "obstacles.stl")
 
-        x0 = self.initial_guess()
-        dp0 = self.evaluate(x0)
-        if dp0 is None:
-            raise RuntimeError("the initial design is not valid, see history.csv")
+        # A starting design whose simulation fails is discarded and another one is tried
+        for attempt in range(self.MAX_START_ATTEMPTS):
+            x0 = self.initial_guess(attempt)
+            dp0 = self.evaluate(x0)
+            if dp0 is not None:
+                break
+        else:
+            raise RuntimeError(f"no valid initial design after {self.MAX_START_ATTEMPTS} attempts, "
+                               "see history.csv")
         # Only for simulations that fail (not converged, OpenFOAM error)
         self._penalty = 10 * dp0
 
