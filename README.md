@@ -2,6 +2,8 @@
 
 I wanted to know what shape a tube should have to move a fluid from one point to another with as little pressure loss as possible. The tube has a fixed radius, its two ends are fixed in space (position and flow direction), and there may be obstacles in the way that it has to go around.
 
+![Optimization animation](assets/opt.GIF)
+
 The path of the tube is a Bézier curve of any degree. An optimizer moves its control points, and for every candidate the pressure drop is computed with OpenFOAM. So each iteration of the optimization is a full CFD run: build the surface, mesh it, solve, read the pressure.
 
 ## What the solver does
