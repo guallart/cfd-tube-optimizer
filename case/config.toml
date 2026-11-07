@@ -21,7 +21,7 @@ n_procs = 12           # parallel processes (1 = serial run)
 
 [optimizer]
 solver = "cma-es"      # "cma-es" (robust to noise and local minima, needs more evaluations) or "cobyla" (few evaluations)
-initial_step = 0.1     # first step of the search, in units of the inlet-outlet distance
+initial_step = 0.4     # first step of the search (CMA-ES sigma), in units of the inlet-outlet distance L (7.76 m here): ~3 m, enough to jump between windows
 x_tolerance = 0.01     # stop when the design changes less than this, same units
 
 [openfoam]

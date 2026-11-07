@@ -55,7 +55,7 @@ class TubeOptimizer:
 
     def __init__(self, inlet_point, inlet_direction, outlet_point, outlet_direction,
                  radius, degree=5, obstacles=(), results_dir="results/optimization",
-                 config=None, seed=0, solver=None):
+                 config=None, seed=0, solver=None, start_routes=()):
         if degree < 3:
             raise ValueError("degree must be at least 3 to impose both end directions")
         self.p_in = np.asarray(inlet_point, dtype=float)
@@ -66,6 +66,9 @@ class TubeOptimizer:
         self.degree = degree
         self.obstacles = list(obstacles)
         self.seed = seed
+        # Lists of points the starting path should go through (e.g. the windows of a
+        # wall). The shortest valid one is the starting design, see initial_guess
+        self.start_routes = [np.asarray(r, dtype=float).reshape(-1, 3) for r in start_routes]
         self.results_dir = Path(results_dir)
         self.config = config if config is not None else load_config()
         # Solver and its settings come from the [optimizer] table of config.toml
@@ -92,6 +95,10 @@ class TubeOptimizer:
         """Starting design: a smooth cubic-like path if it is valid, otherwise the
         shortest valid one out of a batch of random paths. A different attempt
         number gives a different random batch."""
+        if attempt == 0 and self.start_routes:
+            x = self._best_start_route()
+            if x is not None:
+                return x
         x = np.zeros(2 + 3 * self.n_free)
         x[:2] = 1 / 3
         if attempt == 0 and self._geometry_status(x)[1] == "ok":
@@ -113,6 +120,51 @@ class TubeOptimizer:
         if best is None:
             raise RuntimeError("could not find a valid starting path, try a higher degree")
         return best
+
+    def _best_start_route(self):
+        """The shortest valid design that goes through the points of one of the start
+        routes, or None. Only geometry, no simulations."""
+        t = np.linspace(0, 1, 200)
+        best, best_length = None, np.inf
+        for route in self.start_routes:
+            x = self._fit_route(route)
+            if x is None:
+                continue
+            pts = self.build_curve(x).evaluate(t)
+            length = np.linalg.norm(np.diff(pts, axis=0), axis=1).sum()
+            if length < best_length:
+                best, best_length = x, length
+        return best
+
+    def _fit_route(self, route, tolerance=0.1):
+        """Design whose path passes within `tolerance` (in meters) of every point of
+        route, valid and as short as possible; None if it was not found."""
+        t = np.linspace(0, 1, 300)
+        # Free control points spread along the polyline inlet -> route -> outlet
+        poly = np.vstack([self.p_in, route, self.p_out])
+        arc = np.concatenate([[0], np.cumsum(np.linalg.norm(np.diff(poly, axis=0), axis=1))])
+        x = np.zeros(2 + 3 * self.n_free)
+        x[:2] = 0.15
+        for k, i in enumerate(range(2, self.degree - 1)):
+            on_line = self.p_in + (i / self.degree) * (self.p_out - self.p_in)
+            target = [np.interp(i / self.degree * arc[-1], arc, poly[:, d]) for d in range(3)]
+            x[2 + 3 * k:5 + 3 * k] = (np.array(target) - on_line) / self.length
+
+        def cost(z):
+            pts = self.build_curve(z).evaluate(t)
+            miss = [max(np.linalg.norm(pts - w, axis=1).min() - tolerance / 2, 0) for w in route]
+            length = np.linalg.norm(np.diff(pts, axis=0), axis=1).sum()
+            return (100 * np.sum(np.square(miss)) + 0.1 * length / self.length)
+
+        def reached(z):
+            pts = self.build_curve(z).evaluate(t)
+            return all(np.linalg.norm(pts - w, axis=1).min() <= tolerance for w in route)
+
+        constraints = [{"type": "ineq", "fun": lambda z: self.constraints(z) - 1e-3}]
+        for _ in range(3):      # a few rounds, SLSQP stops early on these non-smooth costs
+            x = minimize(cost, x, method="SLSQP", constraints=constraints,
+                         options={"maxiter": 80, "ftol": 1e-10}).x
+        return x if self._is_valid(x) and reached(x) else None
 
     def build_curve(self, x):
         x = np.asarray(x, dtype=float)
