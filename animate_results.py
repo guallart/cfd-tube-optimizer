@@ -2,7 +2,7 @@
 
 Run it with ParaView's batch interpreter (it needs ffmpeg to make the video):
     pvbatch animate_results.py RESULTS_DIR [--output FILE.mp4]
-                               [--single ITERATION|best]
+                               [--single ITERATION|best] [--max-iterations N]
                                [--seconds-per-iteration 0.3] [--final-hold 4]
                                [--rho 1.2] [--pressure-range MIN MAX]
 
@@ -109,6 +109,8 @@ def main():
     parser.add_argument("--output", type=Path, default=None, help="default: RESULTS_DIR/animation.mp4")
     parser.add_argument("--single", metavar="ITERATION", default=None,
                         help="render only this iteration (a number, or 'best') as a PNG image")
+    parser.add_argument("--max-iterations", type=int, default=None, metavar="N",
+                        help="render only the first N valid iterations, for a quick preview")
     parser.add_argument("--seconds-per-iteration", type=float, default=0.3)
     parser.add_argument("--final-hold", type=float, default=4.0, help="seconds on the best solution")
     parser.add_argument("--fps", type=int, default=24)
@@ -122,6 +124,8 @@ def main():
 
     results_dir = args.results_dir.resolve()
     iters, dps = read_history(results_dir)
+    if args.max_iterations is not None:
+        iters, dps = iters[:args.max_iterations], dps[:args.max_iterations]
     if len(iters) == 0:
         raise SystemExit("no valid iterations in history.csv")
     single = None          # index in the history of the only iteration to render
